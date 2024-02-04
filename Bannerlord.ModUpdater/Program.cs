@@ -1,46 +1,52 @@
 ﻿// See https://aka.ms/new-console-template for more information
-using Bannerlord.ModUpdater.Services;
+using Bannerlord.ModUpdater;
+using Cocona;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Octokit;
+using Octokit.Internal;
 
-if (args.Length == 0)
+var builder = CoconaApp.CreateBuilder();
+
+builder.Services.AddTransient<ModUpdater>();
+builder.Services.AddOctoKit(builder.Configuration, "Bannerlord.ModUpdater");
+
+builder.Services.Configure<RepoOptions>(
+    builder.Configuration.GetSection(RepoOptions.SectionName));
+
+var app = builder.Build();
+app.Run(async (ModUpdater updater, [Option('g')]string gameVersion) =>
 {
-    Console.WriteLine("GitHub token must be provided as commandline argument");
-    return -1;
-}
-
-var token = args[0];
-
-var repoProvider = new RepoProvider();
-var repos = await repoProvider.GetRepos();
-
-var client = new GitHubClient(new ProductHeaderValue("Bannerlord.ModUpdater"))
-{
-    Credentials = new Credentials(token)
-};
-
-foreach (var repo in repos)
-{
-    Console.Write($"Fetching PRs from repository '{repo.Owner}/{repo.Name}'...");
-    var pullRequests = await client.PullRequest.GetAllForRepository(repo.Owner, repo.Name);
-
-    if (pullRequests.Count == 0)
+    Console.WriteLine(gameVersion);
+    if (!await updater.CheckPullRequests())
     {
-        Console.WriteLine("OK");
+        return -1;
     }
-    else
-    {
-        Console.WriteLine($"There's {pullRequests.Count} open PRs.");
-        Console.WriteLine($"Do you wish to continue? y/n");
 
-        var response = Console.ReadKey();
-        Console.WriteLine();
-        if (response.Key != ConsoleKey.Y)
+    return 0;
+});
+
+public static class Extensions
+{
+    public static IServiceCollection AddOctoKit(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string userAgent)
+    {
+        var token = configuration.GetValue<string>("token");
+        services.AddSingleton<IConnection>(_ =>
         {
-            return -1;
-        }
+            var socketsHttpHandler = new SocketsHttpHandler();
+            return new Connection(
+                new ProductHeaderValue(userAgent),
+                new Uri("https://api.github.com"),
+                new InMemoryCredentialStore(new Credentials(token)),
+                new HttpClientAdapter(() => socketsHttpHandler),
+                new SimpleJsonSerializer());
+        });
+
+        services.AddTransient<IGitHubClient, GitHubClient>();
+
+        return services;
     }
 }
-
-
-
-return 0;
