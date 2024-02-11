@@ -9,5 +9,11 @@ namespace Bannerlord.ModUpdater.Models
 
         [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("workshopId")]
+        public ulong WorkshopId { get; set; }
+
+        [JsonPropertyName("tags")]
+        public string[] Tags { get; set; } = [];
     }
 }

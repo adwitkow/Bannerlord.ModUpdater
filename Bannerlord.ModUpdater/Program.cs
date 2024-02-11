@@ -1,18 +1,27 @@
 ﻿// See https://aka.ms/new-console-template for more information
 using Bannerlord.ModUpdater;
+using Bannerlord.ModUpdater.Models;
 using Cocona;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Octokit;
-using Octokit.Internal;
+
+const string UserAgent = "Bannerlord.ModUpdater";
 
 var builder = CoconaApp.CreateBuilder();
 
-builder.Services.AddTransient<ModUpdater>();
-builder.Services.AddOctoKit(builder.Configuration, "Bannerlord.ModUpdater");
+builder.Services.AddOptions();
+var repoOptionsSection = builder.Configuration.GetSection(RepoOptions.SectionName);
+builder.Services.Configure<RepoOptions>(repoOptionsSection);
 
-builder.Services.Configure<RepoOptions>(
-    builder.Configuration.GetSection(RepoOptions.SectionName));
+var token = builder.Configuration.GetValue<string>("token");
+if (string.IsNullOrEmpty(token))
+{
+    throw new InvalidOperationException("Token is missing from the configuration.");
+}
+
+builder.Services.AddTransient<ModUpdater>();
+builder.Services.AddScuffedGithubClient(token, UserAgent);
+builder.Services.AddOctoKit(token, UserAgent);
 
 var app = builder.Build();
 app.Run(async (ModUpdater updater, [Option('g')]string gameVersion) =>
@@ -23,30 +32,7 @@ app.Run(async (ModUpdater updater, [Option('g')]string gameVersion) =>
         return -1;
     }
 
+    await updater.UpdateAllMods(gameVersion);
+
     return 0;
 });
-
-public static class Extensions
-{
-    public static IServiceCollection AddOctoKit(
-        this IServiceCollection services,
-        IConfiguration configuration,
-        string userAgent)
-    {
-        var token = configuration.GetValue<string>("token");
-        services.AddSingleton<IConnection>(_ =>
-        {
-            var socketsHttpHandler = new SocketsHttpHandler();
-            return new Connection(
-                new ProductHeaderValue(userAgent),
-                new Uri("https://api.github.com"),
-                new InMemoryCredentialStore(new Credentials(token)),
-                new HttpClientAdapter(() => socketsHttpHandler),
-                new SimpleJsonSerializer());
-        });
-
-        services.AddTransient<IGitHubClient, GitHubClient>();
-
-        return services;
-    }
-}
