@@ -16,6 +16,10 @@ namespace Bannerlord.ModUpdater
         private const string PushArgument = "push";
         private const string PushBranchArgument = "push -u origin {0}";
         private const string PullArgument = "pull";
+        private const string FancyLogArgument = "log {0}..HEAD --no-merges --oneline --no-decorate --pretty=format:\"* %s\"";
+        private const string DescribeLastTagArgument = "describe --tags --abbrev=0";
+
+        private static readonly char[] NewLineChars = Environment.NewLine.ToCharArray();
 
         private readonly string _owner;
         private readonly string _repoName;
@@ -79,25 +83,47 @@ namespace Bannerlord.ModUpdater
             return RunGitCommand(RepoDirectory, PullArgument);
         }
 
-        private static Task RunGitCommand(string workingDirectory, string arguments)
+        public async Task<string[]> GetCommitsSinceLastRelease()
+        {
+            var latestTag = await GetLatestTag();
+            var formattedArgument = string.Format(FancyLogArgument, latestTag.Trim());
+            var result = await RunGitCommand(RepoDirectory, formattedArgument);
+
+            if (string.IsNullOrEmpty(result))
+            {
+                return Array.Empty<string>();
+            }
+
+            return result.Trim().Split(NewLineChars);
+        }
+
+        private Task<string> GetLatestTag()
+        {
+            return RunGitCommand(RepoDirectory, DescribeLastTagArgument);
+        }
+
+        private static async Task<string> RunGitCommand(string workingDirectory, string arguments)
         {
             var processInfo = new ProcessStartInfo
             {
                 WorkingDirectory = workingDirectory,
                 FileName = GitCommand,
-                Arguments = arguments
+                Arguments = arguments,
+                RedirectStandardOutput = true,
             };
 
             Console.WriteLine($"{GitCommand} {arguments}");
 
-            var process = Process.Start(processInfo);
+            using var process = Process.Start(processInfo);
 
             if (process is null)
             {
                 throw new InvalidOperationException($"There was an issue while trying to run 'git {arguments}'");
             }
 
-            return process.WaitForExitAsync();
+            await process.WaitForExitAsync();
+
+            return await process.StandardOutput.ReadToEndAsync();
         }
     }
 }

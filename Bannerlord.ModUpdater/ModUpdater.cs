@@ -9,7 +9,7 @@ namespace Bannerlord.ModUpdater
 {
     internal class ModUpdater
     {
-        private const string _versionFileName = "supported-game-versions.txt";
+        private const string VersionFileName = "supported-game-versions.txt";
 
         public static string WorkingDirectory =>
             Path.Combine(Directory.GetCurrentDirectory(), "work");
@@ -62,7 +62,7 @@ namespace Bannerlord.ModUpdater
 
         public async Task UpdateAllMods(string gameVersion)
         {
-            var repoMetaData = new Dictionary<Repo, (string, IEnumerable<string>)>();
+            var metaDataList = new List<RepoMetaData>();
 
             if (!Directory.Exists(WorkingDirectory))
             {
@@ -96,11 +96,11 @@ namespace Bannerlord.ModUpdater
                 await git.CheckoutBranch("master");
                 await git.Pull();
 
-                var versionFile = Path.Combine(repoDirectory, _versionFileName);
+                var versionFile = Path.Combine(repoDirectory, VersionFileName);
                 var versions = File.ReadAllLines(versionFile).ToList();
                 if (!UpdateVersionFile(versions, gameVersion, versionFile))
                 {
-                    Console.WriteLine($"{repo.Owner}/{repo.Name} already contains version {gameVersion}. Skipping.");
+                    Console.WriteLine($"{repo.Owner}/{repo.Name} already contains version {gameVersion}.");
                 }
 
                 await git.StageAll();
@@ -112,36 +112,63 @@ namespace Bannerlord.ModUpdater
 
                 var latestVersion = await GetLatestReleaseVersion(repo);
                 var newVersion = CalculateReleaseVersion(latestVersion);
-                repoMetaData.Add(repo, ($"v{newVersion}", versions));
 
-                var newBranch = $"release/{newVersion}";
-                await git.CheckoutNewBranch($"release/{newVersion}");
-                await git.PushBranch(newBranch);
+                var commits = await git.GetCommitsSinceLastRelease();
 
+                if (commits.Length != 0)
+                {
+                    metaDataList.Add(new RepoMetaData()
+                    {
+                        Repo = repo,
+                        NewVersion = $"v{newVersion}",
+                        SupportedGameVersions = versions,
+                        Commits = commits,
+                    });
+
+                    var newBranch = $"release/{newVersion}";
+                    await git.CheckoutNewBranch($"release/{newVersion}");
+                    await git.PushBranch(newBranch);
+                }
+            }
+
+            if (metaDataList.Count == 0)
+            {
+                Console.WriteLine("No commits to publish.");
+
+                SteamClient.Shutdown();
+
+                return;
             }
 
             Console.WriteLine("Going to sleep for a few minutes while releases get published.");
             await Task.Delay(TimeSpan.FromMinutes(3));
-            while (repoMetaData.Any())
+
+            while (metaDataList.Count != 0)
             {
-                // I should probably stop overusing tuples
-                foreach (var (repo, (tagName, versions)) in repoMetaData)
+                for (int i = metaDataList.Count - 1; i >= 0; i--)
                 {
+                    var metaData = metaDataList[i];
+
+                    var repo = metaData.Repo;
+                    var tagName = metaData.NewVersion;
+                    var versions = metaData.SupportedGameVersions;
+
                     Console.WriteLine($"Checking if '{repo.Owner}/{repo.Name}' has released");
                     var latestRelease = await _githubClient.Repository.Release
                         .GetLatest(repo.Owner, repo.Name);
                     if (latestRelease.TagName == tagName)
                     {
                         Console.WriteLine($"Release {tagName} found, extracting...");
-                        repoMetaData.Remove(repo);
                         await ExtractReleaseAssets(repo, latestRelease);
 
                         Console.WriteLine($"Publishing to workshop...");
-                        await PublishToWorkshop(repo, gameVersion, tagName, versions);
+                        await PublishToWorkshop(metaData);
+
+                        metaDataList.RemoveAt(i);
                     }
                 }
 
-                if (repoMetaData.Any())
+                if (metaDataList.Count != 0)
                 {
                     await Task.Delay(TimeSpan.FromMinutes(1));
                 }
@@ -150,18 +177,20 @@ namespace Bannerlord.ModUpdater
             SteamClient.Shutdown();
         }
 
-        private static async Task<bool> PublishToWorkshop(
-            Repo repo,
-            string gameVersion,
-            string releaseVersion,
-            IEnumerable<string> supportedVersions)
+        private static async Task<bool> PublishToWorkshop(RepoMetaData metaData)
         {
+            var repo = metaData.Repo;
+            var releaseVersion = metaData.NewVersion;
+            var supportedVersions = metaData.SupportedGameVersions;
+
+            var changeLogLines = metaData.Commits.Prepend($"Version {releaseVersion}");
+            var changeLog = string.Join(Environment.NewLine, changeLogLines);
+
             var releaseDirectory = GetReleaseRepoDirectory(repo.Owner, repo.Name);
             var buildPath = Path.Combine(releaseDirectory, "Modules", repo.Name);
             var editor = new Steamworks.Ugc.Editor(repo.WorkshopId)
                 .WithContent(new DirectoryInfo(buildPath))
-                .WithChangeLog(@$"Version {releaseVersion}
-* Rebuild for v{gameVersion}");
+                .WithChangeLog(changeLog);
 
             foreach (var version in supportedVersions)
             {
@@ -189,7 +218,7 @@ namespace Bannerlord.ModUpdater
 
         private async Task ExtractReleaseAssets(Repo repo, Release release)
         {
-            var asset = release.Assets.First().Url;
+            var asset = release.Assets[0].Url;
 
             using var stream = await _assetClient.GetAssetStream(asset);
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
