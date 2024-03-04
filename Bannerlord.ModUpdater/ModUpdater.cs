@@ -1,5 +1,5 @@
-﻿using System.Diagnostics;
-using System.IO.Compression;
+﻿using System.IO.Compression;
+using Bannerlord.ModUpdater.Cli;
 using Bannerlord.ModUpdater.Models;
 using Microsoft.Extensions.Options;
 using Octokit;
@@ -84,36 +84,57 @@ namespace Bannerlord.ModUpdater
 
             foreach (var repo in _repos)
             {
-                var git = new GitRepositoryFacade(repo.Owner, repo.Name, WorkingDirectory);
-
                 var directoryWithOwner = Path.Combine(WorkingDirectory, repo.Owner);
-                await git.Clone();
-
                 var repoDirectory = GetWorkingRepoDirectory(repo.Owner, repo.Name);
+                var projectDirectory = Path.Combine(repoDirectory, repo.Name);
+
+                var git = new GitRepositoryFacade(repo.Owner, repo.Name, WorkingDirectory);
+                var dotnet = new DotnetFacade(projectDirectory);
+
+                if (!Directory.Exists(repoDirectory))
+                {
+                    git.Clone();
+                }
 
                 //TODO: The master branch name should be configurable
                 //      for the perverts that use 'main'
-                await git.CheckoutBranch("master");
-                await git.Pull();
+                git.CheckoutBranch("master");
+                git.Pull();
 
                 var versionFile = Path.Combine(repoDirectory, VersionFileName);
                 var versions = File.ReadAllLines(versionFile).ToList();
-                if (!UpdateVersionFile(versions, gameVersion, versionFile))
+
+                var versionUpdated = UpdateVersionFile(versions, gameVersion, versionFile);
+                if (!versionUpdated)
                 {
                     Console.WriteLine($"{repo.Owner}/{repo.Name} already contains version {gameVersion}.");
                 }
 
-                await git.StageAll();
+                git.StageAll();
 
-                await BuildProject(repoDirectory);
+                dotnet.BuildProject(gameVersion);
 
-                await git.Commit($"Add v{gameVersion} to supported game versions");
-                await git.Push();
+                if (versionUpdated)
+                {
+                    git.Commit($"Add v{gameVersion} to supported game versions.");
+                }
+
+                var outdatedPackages = dotnet.GetOutdatedPackages();
+                foreach (var package in outdatedPackages)
+                {
+                    dotnet.UpdatePackage(package.Id);
+                    dotnet.BuildProject(gameVersion);
+
+                    git.StageAll();
+                    git.Commit($"Update {package.Id} to {package.LatestVersion}.");
+                }
+
+                git.Push();
 
                 var latestVersion = await GetLatestReleaseVersion(repo);
                 var newVersion = CalculateReleaseVersion(latestVersion);
 
-                var commits = await git.GetCommitsSinceLastRelease();
+                var commits = git.GetCommitsSinceLastRelease();
 
                 if (commits.Length != 0)
                 {
@@ -126,8 +147,12 @@ namespace Bannerlord.ModUpdater
                     });
 
                     var newBranch = $"release/{newVersion}";
-                    await git.CheckoutNewBranch($"release/{newVersion}");
-                    await git.PushBranch(newBranch);
+                    try
+                    {
+                        git.CheckoutNewBranch($"release/{newVersion}");
+                    }
+                    catch { } // will throw an exception if branch already exists locally
+                    git.PushBranch(newBranch);
                 }
             }
 
@@ -256,28 +281,6 @@ namespace Bannerlord.ModUpdater
             }
 
             return toUpdate;
-        }
-
-        private static async Task BuildProject(string repoDirectory)
-        {
-            var buildProcess = Process.Start(new ProcessStartInfo()
-            {
-                WorkingDirectory = repoDirectory,
-                FileName = "dotnet",
-                Arguments = "build"
-            });
-
-            if (buildProcess is null)
-            {
-                throw new InvalidOperationException("Could not run 'dotnet build'");
-            }
-
-            await buildProcess.WaitForExitAsync();
-
-            if (buildProcess.ExitCode != 0)
-            {
-                throw new Exception("The project has failed to be built.");
-            }
         }
 
         private static string CalculateReleaseVersion(string latestVerrsion)

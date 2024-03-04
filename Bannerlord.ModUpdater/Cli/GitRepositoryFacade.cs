@@ -1,7 +1,4 @@
-﻿using System.Diagnostics;
-using Octokit;
-
-namespace Bannerlord.ModUpdater
+﻿namespace Bannerlord.ModUpdater.Cli
 {
     public class GitRepositoryFacade
     {
@@ -25,105 +22,85 @@ namespace Bannerlord.ModUpdater
         private readonly string _repoName;
         private readonly string _workingDirectory;
 
+        private readonly CliExecutor _executor;
+
         public GitRepositoryFacade(string owner, string repoName, string workingDirectory)
         {
             _owner = owner;
             _repoName = repoName;
             _workingDirectory = workingDirectory;
+
+            _executor = new CliExecutor(GitCommand);
         }
 
         private string DirectoryWithOwner => Path.Combine(_workingDirectory, _owner);
 
         private string RepoDirectory => Path.Combine(DirectoryWithOwner, _repoName);
 
-        public Task Clone()
+        public void Clone()
         {
             var url = string.Format(RepoUrl, _owner, _repoName);
 
             var formattedArgument = string.Format(CloneArgument, url);
-            return RunGitCommand(DirectoryWithOwner, formattedArgument);
+            _executor.ExecuteCommand(DirectoryWithOwner, formattedArgument);
         }
 
-        public Task StageAll()
+        public void StageAll()
         {
-            return RunGitCommand(RepoDirectory, StageArgument);
+            _executor.ExecuteCommand(RepoDirectory, StageArgument);
         }
 
-        public Task Commit(string commitMessage)
+        public void Commit(string commitMessage)
         {
             var formattedArgument = string.Format(CommitArgument, commitMessage);
-            return RunGitCommand(RepoDirectory, formattedArgument);
+            _executor.ExecuteCommand(RepoDirectory, formattedArgument);
         }
 
-        public Task CheckoutBranch(string branch)
+        public void CheckoutBranch(string branch)
         {
             var formattedArgument = string.Format(CheckoutBranchArgument, branch);
-            return RunGitCommand(RepoDirectory, formattedArgument);
+            _executor.ExecuteCommand(RepoDirectory, formattedArgument);
         }
 
-        public Task CheckoutNewBranch(string branch)
+        public void CheckoutNewBranch(string branch)
         {
             var formattedArgument = string.Format(CheckoutNewBranchArgument, branch);
-            return RunGitCommand(RepoDirectory, formattedArgument);
+            _executor.ExecuteCommand(RepoDirectory, formattedArgument);
         }
 
-        public Task Push()
+        public void Push()
         {
-            return RunGitCommand(RepoDirectory, PushArgument);
+            _executor.ExecuteCommand(RepoDirectory, PushArgument);
         }
 
-        public Task PushBranch(string branch)
+        public void PushBranch(string branch)
         {
             var formattedArgument = string.Format(PushBranchArgument, branch);
-            return RunGitCommand(RepoDirectory, formattedArgument);
+            _executor.ExecuteCommand(RepoDirectory, formattedArgument);
         }
 
-        public Task Pull()
+        public void Pull()
         {
-            return RunGitCommand(RepoDirectory, PullArgument);
+            _executor.ExecuteCommand(RepoDirectory, PullArgument);
         }
 
-        public async Task<string[]> GetCommitsSinceLastRelease()
+        public string[] GetCommitsSinceLastRelease()
         {
-            var latestTag = await GetLatestTag();
+            var latestTag = GetLatestTag();
             var formattedArgument = string.Format(FancyLogArgument, latestTag.Trim());
-            var result = await RunGitCommand(RepoDirectory, formattedArgument);
+            var result = _executor.ExecuteCommand(RepoDirectory, formattedArgument);
 
             if (string.IsNullOrEmpty(result))
             {
                 return Array.Empty<string>();
             }
 
-            return result.Trim().Split(NewLineChars);
+            return result.Trim().Split(NewLineChars, StringSplitOptions.RemoveEmptyEntries);
         }
 
-        private Task<string> GetLatestTag()
+        private string GetLatestTag()
         {
-            return RunGitCommand(RepoDirectory, DescribeLastTagArgument);
-        }
-
-        private static async Task<string> RunGitCommand(string workingDirectory, string arguments)
-        {
-            var processInfo = new ProcessStartInfo
-            {
-                WorkingDirectory = workingDirectory,
-                FileName = GitCommand,
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-            };
-
-            Console.WriteLine($"{GitCommand} {arguments}");
-
-            using var process = Process.Start(processInfo);
-
-            if (process is null)
-            {
-                throw new InvalidOperationException($"There was an issue while trying to run 'git {arguments}'");
-            }
-
-            await process.WaitForExitAsync();
-
-            return await process.StandardOutput.ReadToEndAsync();
+            return _executor.ExecuteCommand(RepoDirectory, DescribeLastTagArgument);
         }
     }
 }
