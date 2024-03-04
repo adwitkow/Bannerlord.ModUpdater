@@ -25,16 +25,16 @@ namespace Bannerlord.ModUpdater
         private readonly string _repoName;
         private readonly string _workingDirectory;
 
-        private string DirectoryWithOwner => Path.Combine(_workingDirectory, _owner);
-
-        private string RepoDirectory => Path.Combine(DirectoryWithOwner, _repoName);
-
         public GitRepositoryFacade(string owner, string repoName, string workingDirectory)
         {
             _owner = owner;
             _repoName = repoName;
             _workingDirectory = workingDirectory;
         }
+
+        private string DirectoryWithOwner => Path.Combine(_workingDirectory, _owner);
+
+        private string RepoDirectory => Path.Combine(DirectoryWithOwner, _repoName);
 
         public Task Clone()
         {
