@@ -46,6 +46,10 @@ namespace Bannerlord.ModUpdater
                 else
                 {
                     Console.WriteLine($"There's {pullRequests.Count} open PRs.");
+                    foreach (var pr in pullRequests)
+                    {
+                        Console.WriteLine($"- '{pr.Title}' by {pr.User.Login}");
+                    }
                     Console.WriteLine($"Do you wish to continue? y/n");
 
                     var response = Console.ReadKey();
