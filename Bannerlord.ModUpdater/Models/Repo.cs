@@ -15,5 +15,8 @@ namespace Bannerlord.ModUpdater.Models
 
         [JsonPropertyName("tags")]
         public string[] Tags { get; set; } = [];
+
+        [JsonPropertyName("ForcedVersion")]
+        public string ForcedVersion { get; set; } = string.Empty;
     }
 }

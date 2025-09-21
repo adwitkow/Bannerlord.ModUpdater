@@ -258,6 +258,11 @@ namespace Bannerlord.ModUpdater
 
         private async Task<string> GetLatestReleaseVersion(Repo repo)
         {
+            if (!string.IsNullOrWhiteSpace(repo.ForcedVersion))
+            {
+                return repo.ForcedVersion;
+            }
+
             string version;
             try
             {
