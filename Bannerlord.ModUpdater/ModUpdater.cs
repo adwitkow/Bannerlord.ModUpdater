@@ -170,6 +170,12 @@ namespace Bannerlord.ModUpdater
             }
 
             Console.WriteLine("Going to sleep for a few minutes while releases get published.");
+            Console.WriteLine("Repos to publish:");
+            foreach (var metadata in metaDataList)
+            {
+                Console.WriteLine(metadata.Repo.Name);
+            }
+
             await Task.Delay(TimeSpan.FromMinutes(3));
 
             while (metaDataList.Count != 0)
