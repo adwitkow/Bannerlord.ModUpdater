@@ -1,9 +1,9 @@
-﻿using System.IO.Compression;
-using Bannerlord.ModUpdater.Cli;
+﻿using Bannerlord.ModUpdater.Cli;
 using Bannerlord.ModUpdater.Models;
 using Microsoft.Extensions.Options;
 using Octokit;
 using Steamworks;
+using System.IO.Compression;
 
 namespace Bannerlord.ModUpdater
 {
@@ -66,8 +66,6 @@ namespace Bannerlord.ModUpdater
 
         public async Task UpdateAllMods(string gameVersion)
         {
-            var metaDataList = new List<RepoMetaData>();
-
             if (!Directory.Exists(WorkingDirectory))
             {
                 var owners = _repos.Select(repo => repo.Owner).Distinct();
@@ -86,6 +84,68 @@ namespace Bannerlord.ModUpdater
 
             SteamClient.Init(261550, true);
 
+            RebuildForGameVersion(gameVersion);
+
+            var metaDataList = await PushReleaseBranches();
+            if (metaDataList.Count == 0)
+            {
+                Console.WriteLine("No commits to publish.");
+
+                SteamClient.Shutdown();
+
+                return;
+            }
+
+            Console.WriteLine("Going to sleep for a few minutes while releases get published.");
+            Console.WriteLine("Repos to publish:");
+            foreach (var metadata in metaDataList)
+            {
+                Console.WriteLine(metadata.Repo.Name);
+            }
+
+            await Task.Delay(TimeSpan.FromMinutes(3));
+            
+            await ReleaseToWorkshop(metaDataList);
+
+            SteamClient.Shutdown();
+        }
+
+        private async Task ReleaseToWorkshop(List<RepoMetaData> metaDataList)
+        {
+            while (metaDataList.Count != 0)
+            {
+                for (int i = metaDataList.Count - 1; i >= 0; i--)
+                {
+                    var metaData = metaDataList[i];
+
+                    var repo = metaData.Repo;
+                    var tagName = metaData.NewVersion;
+                    var versions = metaData.SupportedGameVersions;
+
+                    Console.WriteLine($"Checking if '{repo.Owner}/{repo.Name}' has released");
+                    var latestRelease = await _githubClient.Repository.Release
+                        .GetLatest(repo.Owner, repo.Name);
+                    if (latestRelease.TagName == tagName)
+                    {
+                        Console.WriteLine($"Release {tagName} found, extracting...");
+                        await ExtractReleaseAssets(repo, latestRelease);
+
+                        Console.WriteLine($"Publishing to workshop...");
+                        await PublishToWorkshop(metaData);
+
+                        metaDataList.RemoveAt(i);
+                    }
+                }
+
+                if (metaDataList.Count != 0)
+                {
+                    await Task.Delay(TimeSpan.FromMinutes(1));
+                }
+            }
+        }
+
+        private void RebuildForGameVersion(string gameVersion)
+        {
             foreach (var repo in _repos)
             {
                 var directoryWithOwner = Path.Combine(WorkingDirectory, repo.Owner);
@@ -134,6 +194,20 @@ namespace Bannerlord.ModUpdater
                 }
 
                 git.Push();
+            }
+        }
+
+        public async Task<List<RepoMetaData>> PushReleaseBranches()
+        {
+            var metaDataList = new List<RepoMetaData>();
+
+            foreach (var repo in _repos)
+            {
+                var repoDirectory = GetWorkingRepoDirectory(repo.Owner, repo.Name);
+                var versionFile = Path.Combine(repoDirectory, VersionFileName);
+                var versions = File.ReadAllLines(versionFile).ToList();
+
+                var git = new GitRepositoryFacade(repo.Owner, repo.Name, WorkingDirectory);
 
                 var latestVersion = await GetLatestReleaseVersion(repo);
                 var newVersion = CalculateReleaseVersion(latestVersion);
@@ -160,56 +234,7 @@ namespace Bannerlord.ModUpdater
                 }
             }
 
-            if (metaDataList.Count == 0)
-            {
-                Console.WriteLine("No commits to publish.");
-
-                SteamClient.Shutdown();
-
-                return;
-            }
-
-            Console.WriteLine("Going to sleep for a few minutes while releases get published.");
-            Console.WriteLine("Repos to publish:");
-            foreach (var metadata in metaDataList)
-            {
-                Console.WriteLine(metadata.Repo.Name);
-            }
-
-            await Task.Delay(TimeSpan.FromMinutes(3));
-
-            while (metaDataList.Count != 0)
-            {
-                for (int i = metaDataList.Count - 1; i >= 0; i--)
-                {
-                    var metaData = metaDataList[i];
-
-                    var repo = metaData.Repo;
-                    var tagName = metaData.NewVersion;
-                    var versions = metaData.SupportedGameVersions;
-
-                    Console.WriteLine($"Checking if '{repo.Owner}/{repo.Name}' has released");
-                    var latestRelease = await _githubClient.Repository.Release
-                        .GetLatest(repo.Owner, repo.Name);
-                    if (latestRelease.TagName == tagName)
-                    {
-                        Console.WriteLine($"Release {tagName} found, extracting...");
-                        await ExtractReleaseAssets(repo, latestRelease);
-
-                        Console.WriteLine($"Publishing to workshop...");
-                        await PublishToWorkshop(metaData);
-
-                        metaDataList.RemoveAt(i);
-                    }
-                }
-
-                if (metaDataList.Count != 0)
-                {
-                    await Task.Delay(TimeSpan.FromMinutes(1));
-                }
-            }
-
-            SteamClient.Shutdown();
+            return metaDataList;
         }
 
         private static async Task<bool> PublishToWorkshop(RepoMetaData metaData)
