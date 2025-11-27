@@ -321,11 +321,70 @@ namespace Bannerlord.ModUpdater
 
             if (toUpdate)
             {
-                versions.Insert(0, formattedVersion);
-                File.WriteAllLines(versionFile, versions);
+                versions.Add(formattedVersion);
+                var orderedVersions = versions
+                    .OrderByDescending(GetMajor)
+                    .ThenByDescending(GetMinor)
+                    .ThenByDescending(GetPatch)
+                    .ToList();
+
+                RemoveOldInterimVersions(orderedVersions);
+
+                File.WriteAllLines(versionFile, orderedVersions);
             }
 
             return toUpdate;
+        }
+
+        public static void RemoveOldInterimVersions(List<string> versions)
+        {
+            if (versions.Count == 0)
+            {
+                return;
+            }
+
+            // List sorted in descending order
+            int highestMinor = GetMinor(versions[0]);
+            int previousMinor = -1;
+            for (int i = versions.Count - 1; i > 0; i--)
+            {
+                var currentMinor = GetMinor(versions[i]);
+                var nextMinor = GetMinor(versions[i - 1]);
+
+                var isFirstVersion = previousMinor != currentMinor;
+                var isLastVersion = nextMinor != currentMinor;
+                var isHighestVersion = highestMinor == currentMinor;
+
+                if (!isFirstVersion && !isLastVersion && !isHighestVersion)
+                {
+                    versions.RemoveAt(i);
+                }
+
+                previousMinor = currentMinor;
+            }
+        }
+
+        private static int GetMajor(string s)
+        {
+            const int versionMarkerOffset = 1;
+
+            int p1 = s.IndexOf('.');
+            int p2 = s.IndexOf('.', p1 + 1);
+            return int.Parse(s.AsSpan(versionMarkerOffset, p1 - versionMarkerOffset));
+        }
+
+        private static int GetMinor(string s)
+        {
+            int p1 = s.IndexOf('.');
+            int p2 = s.IndexOf('.', p1 + 1);
+            return int.Parse(s.AsSpan(p1 + 1, p2 - p1 - 1));
+        }
+
+        private static int GetPatch(string s)
+        {
+            int p1 = s.IndexOf('.');
+            int p2 = s.IndexOf('.', p1 + 1);
+            return int.Parse(s.AsSpan(p2 + 1));
         }
 
         private static string CalculateReleaseVersion(string latestVerrsion)
