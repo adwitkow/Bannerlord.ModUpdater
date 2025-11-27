@@ -186,6 +186,11 @@ namespace Bannerlord.ModUpdater
                 var outdatedPackages = dotnet.GetOutdatedPackages();
                 foreach (var package in outdatedPackages)
                 {
+                    if (package.Id.StartsWith("Bannerlord.ReferenceAssemblies"))
+                    {
+                        continue;
+                    }
+
                     dotnet.UpdatePackage(package.Id);
                     dotnet.BuildProject(gameVersion);
 
