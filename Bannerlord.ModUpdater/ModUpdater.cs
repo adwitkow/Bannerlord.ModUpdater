@@ -186,7 +186,8 @@ namespace Bannerlord.ModUpdater
                 var outdatedPackages = dotnet.GetOutdatedPackages();
                 foreach (var package in outdatedPackages)
                 {
-                    if (package.Id.StartsWith("Bannerlord.ReferenceAssemblies"))
+                    if (package.Id.StartsWith("Bannerlord.ReferenceAssemblies")
+                        || package.Id.StartsWith("Humanizer"))
                     {
                         continue;
                     }
