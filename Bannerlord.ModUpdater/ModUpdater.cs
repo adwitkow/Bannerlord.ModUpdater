@@ -220,24 +220,33 @@ namespace Bannerlord.ModUpdater
 
                 var commits = git.GetCommitsSinceLastRelease();
 
-                if (commits.Length != 0)
+                if (commits.Length == 0)
                 {
-                    metaDataList.Add(new RepoMetaData()
+                    if (repo.ForcedVersion is not null)
                     {
-                        Repo = repo,
-                        NewVersion = $"v{newVersion}",
-                        SupportedGameVersions = versions,
-                        Commits = commits,
-                    });
-
-                    var newBranch = $"release/{newVersion}";
-                    try
-                    {
-                        git.CheckoutNewBranch($"release/{newVersion}");
+                        commits = ["Update version"];
                     }
-                    catch { } // will throw an exception if branch already exists locally
-                    git.PushBranch(newBranch);
+                    else
+                    {
+                        continue;
+                    }
                 }
+
+                metaDataList.Add(new RepoMetaData()
+                {
+                    Repo = repo,
+                    NewVersion = $"v{newVersion}",
+                    SupportedGameVersions = versions,
+                    Commits = commits,
+                });
+
+                var newBranch = $"release/{newVersion}";
+                try
+                {
+                    git.CheckoutNewBranch($"release/{newVersion}");
+                }
+                catch { } // will throw an exception if branch already exists locally
+                git.PushBranch(newBranch);
             }
 
             return metaDataList;
