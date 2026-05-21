@@ -66,15 +66,17 @@ namespace Bannerlord.ModUpdater
 
         public async Task UpdateAllMods(string gameVersion)
         {
-            if (!Directory.Exists(WorkingDirectory))
+            if (Directory.Exists(WorkingDirectory))
             {
-                var owners = _repos.Select(repo => repo.Owner).Distinct();
+                Directory.Delete(WorkingDirectory, true);
+            }
 
-                foreach (var owner in owners)
-                {
-                    var path = Path.Combine(WorkingDirectory, owner);
-                    Directory.CreateDirectory(path);
-                }
+            var owners = _repos.Select(repo => repo.Owner).Distinct();
+
+            foreach (var owner in owners)
+            {
+                var path = Path.Combine(WorkingDirectory, owner);
+                Directory.CreateDirectory(path);
             }
 
             if (Directory.Exists(ReleaseDirectory))
