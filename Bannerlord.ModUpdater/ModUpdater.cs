@@ -224,7 +224,7 @@ namespace Bannerlord.ModUpdater
 
                 if (commits.Length == 0)
                 {
-                    if (repo.ForcedVersion is not null)
+                    if (!string.IsNullOrEmpty(repo.ForcedVersion))
                     {
                         commits = ["Update version"];
                     }

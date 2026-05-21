@@ -1,7 +1,9 @@
-﻿using System.Text.Json.Serialization;
+﻿using System.Diagnostics;
+using System.Text.Json.Serialization;
 
 namespace Bannerlord.ModUpdater.Models
 {
+    [DebuggerDisplay("{Name,nq}")]
     public class Repo()
     {
         [JsonPropertyName("owner")]
