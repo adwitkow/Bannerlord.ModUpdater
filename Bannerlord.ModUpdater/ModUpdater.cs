@@ -217,8 +217,7 @@ namespace Bannerlord.ModUpdater
 
                 var git = new GitRepositoryFacade(repo.Owner, repo.Name, WorkingDirectory);
 
-                var latestVersion = await GetLatestReleaseVersion(repo);
-                var newVersion = CalculateReleaseVersion(latestVersion);
+                var newVersion = await CalculateReleaseVersion(repo);
 
                 var commits = git.GetCommitsSinceLastRelease();
 
@@ -306,11 +305,6 @@ namespace Bannerlord.ModUpdater
 
         private async Task<string> GetLatestReleaseVersion(Repo repo)
         {
-            if (!string.IsNullOrWhiteSpace(repo.ForcedVersion))
-            {
-                return repo.ForcedVersion;
-            }
-
             string version;
             try
             {
@@ -324,6 +318,30 @@ namespace Bannerlord.ModUpdater
             }
             
             return version;
+        }
+
+        private async Task<string> CalculateReleaseVersion(Repo repo)
+        {
+            if (!string.IsNullOrWhiteSpace(repo.ForcedVersion))
+            {
+                return repo.ForcedVersion;
+            }
+
+            var latestVersion = await GetLatestReleaseVersion(repo);
+
+            var subversions = latestVersion.Split('.')
+                .Select(s => Convert.ToInt32(s))
+                .ToArray();
+
+            var subversionsLength = subversions.Length;
+            if (subversionsLength < 4)
+            {
+                Array.Resize(ref subversions, 4);
+            }
+
+            subversions[3]++;
+
+            return string.Join('.', subversions);
         }
 
         private static bool UpdateVersionFile(List<string> versions, string gameVersion, string versionFile)
@@ -397,23 +415,6 @@ namespace Bannerlord.ModUpdater
             int p1 = s.IndexOf('.');
             int p2 = s.IndexOf('.', p1 + 1);
             return int.Parse(s.AsSpan(p2 + 1));
-        }
-
-        private static string CalculateReleaseVersion(string latestVerrsion)
-        {
-            var subversions = latestVerrsion.Split('.')
-                .Select(s => Convert.ToInt32(s))
-                .ToArray();
-
-            var subversionsLength = subversions.Length;
-            if (subversionsLength < 4)
-            {
-                Array.Resize(ref subversions, 4);
-            }
-
-            subversions[3]++;
-
-            return string.Join('.', subversions);
         }
 
         private static string GetWorkingRepoDirectory(string owner, string name)
