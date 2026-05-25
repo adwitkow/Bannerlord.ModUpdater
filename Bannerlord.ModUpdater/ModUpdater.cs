@@ -66,22 +66,12 @@ namespace Bannerlord.ModUpdater
 
         public async Task UpdateAllMods(string gameVersion)
         {
-            if (Directory.Exists(WorkingDirectory))
-            {
-                Directory.Delete(WorkingDirectory, true);
-            }
-
             var owners = _repos.Select(repo => repo.Owner).Distinct();
 
             foreach (var owner in owners)
             {
                 var path = Path.Combine(WorkingDirectory, owner);
                 Directory.CreateDirectory(path);
-            }
-
-            if (Directory.Exists(ReleaseDirectory))
-            {
-                Directory.Delete(ReleaseDirectory, true);
             }
 
             SteamClient.Init(261550, true);

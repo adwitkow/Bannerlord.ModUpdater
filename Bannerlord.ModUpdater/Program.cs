@@ -7,6 +7,16 @@ using Microsoft.Extensions.DependencyInjection;
 
 const string UserAgent = "Bannerlord.ModUpdater";
 
+if (Directory.Exists(ModUpdater.WorkingDirectory))
+{
+    ForceDeleteDirectory(ModUpdater.WorkingDirectory);
+}
+
+if (Directory.Exists(ModUpdater.ReleaseDirectory))
+{
+    ForceDeleteDirectory(ModUpdater.ReleaseDirectory);
+}
+
 var builder = CoconaApp.CreateBuilder();
 
 builder.Services.AddOptions();
@@ -36,3 +46,48 @@ app.Run(async (ModUpdater updater, [Option('g')]string gameVersion) =>
 
     return 0;
 });
+
+static void ForceDeleteDirectory(string path, int maxRetries = 10)
+{
+    if (!Directory.Exists(path))
+        return;
+
+    // Remove read-only/system attributes recursively
+    NormalizeAttributes(path);
+
+    for (int i = 0; i < maxRetries; i++)
+    {
+        try
+        {
+            Directory.Delete(path, recursive: true);
+            return;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            NormalizeAttributes(path);
+            Thread.Sleep(500);
+        }
+        catch (IOException)
+        {
+            // Often "file in use"
+            Thread.Sleep(500);
+        }
+    }
+
+    throw new Exception($"Failed to delete directory: {path}");
+}
+
+static void NormalizeAttributes(string path)
+{
+    foreach (string dir in Directory.GetDirectories(path, "*", SearchOption.AllDirectories))
+    {
+        File.SetAttributes(dir, FileAttributes.Normal);
+    }
+
+    foreach (string file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+    {
+        File.SetAttributes(file, FileAttributes.Normal);
+    }
+
+    File.SetAttributes(path, FileAttributes.Normal);
+}
