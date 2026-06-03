@@ -120,7 +120,7 @@ namespace Bannerlord.ModUpdater
                     if (latestRelease.TagName == tagName)
                     {
                         Console.WriteLine($"Release {tagName} found, extracting...");
-                        await ExtractReleaseAssets(repo, latestRelease);
+                        metaData.ReleaseUrl = await ExtractReleaseAssets(repo, latestRelease);
 
                         Console.WriteLine($"Publishing to workshop...");
                         await PublishToWorkshop(metaData);
@@ -228,7 +228,6 @@ namespace Bannerlord.ModUpdater
                     Repo = repo,
                     NewVersion = $"v{newVersion}",
                     SupportedGameVersions = versions,
-                    Commits = commits,
                 });
 
                 var newBranch = $"release/{newVersion}";
@@ -249,7 +248,7 @@ namespace Bannerlord.ModUpdater
             var releaseVersion = metaData.NewVersion;
             var supportedVersions = metaData.SupportedGameVersions;
 
-            var changeLogLines = metaData.Commits.Prepend($"Version {releaseVersion}");
+            string[] changeLogLines = [$"Version {releaseVersion}", $"Changelog: {metaData.ReleaseUrl}"];
             var changeLog = string.Join(Environment.NewLine, changeLogLines);
 
             var releaseDirectory = GetReleaseRepoDirectory(repo.Owner, repo.Name);
@@ -282,7 +281,7 @@ namespace Bannerlord.ModUpdater
             return result.Success;
         }
 
-        private async Task ExtractReleaseAssets(Repo repo, Release release)
+        private async Task<string> ExtractReleaseAssets(Repo repo, Release release)
         {
             var asset = release.Assets[0].Url;
 
@@ -291,6 +290,8 @@ namespace Bannerlord.ModUpdater
 
             var directory = GetReleaseRepoDirectory(repo.Owner, repo.Name);
             archive.ExtractToDirectory(directory);
+
+            return release.HtmlUrl;
         }
 
         private async Task<string> GetLatestReleaseVersion(Repo repo)

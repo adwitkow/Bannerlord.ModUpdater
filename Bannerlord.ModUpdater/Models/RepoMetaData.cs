@@ -8,6 +8,6 @@
 
         public required IEnumerable<string> SupportedGameVersions { get; init; }
 
-        public required IEnumerable<string> Commits { get; init; }
+        public string? ReleaseUrl { get; set; }
     }
 }
