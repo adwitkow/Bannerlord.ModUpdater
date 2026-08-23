@@ -1,9 +1,12 @@
 ﻿using Bannerlord.ModUpdater.Cli;
 using Bannerlord.ModUpdater.Models;
 using Microsoft.Extensions.Options;
-using Octokit;
+using NuGet.Common;
+using NuGet.Protocol;
+using NuGet.Protocol.Core.Types;
 using Steamworks;
 using System.IO.Compression;
+using System.Text.RegularExpressions;
 
 namespace Bannerlord.ModUpdater
 {
@@ -17,13 +20,13 @@ namespace Bannerlord.ModUpdater
         public static string ReleaseDirectory =>
             Path.Combine(Directory.GetCurrentDirectory(), "release");
 
-        private readonly IGitHubClient _githubClient;
+        private readonly Octokit.IGitHubClient _githubClient;
         private readonly GitHubAssetClient _assetClient;
         private readonly IEnumerable<Repo> _repos;
 
         public ModUpdater(
             IOptions<RepoOptions> repoOptions,
-            IGitHubClient githubClient,
+            Octokit.IGitHubClient githubClient,
             GitHubAssetClient assetClient)
         {
             _repos = repoOptions.Value.Repos;
@@ -76,7 +79,7 @@ namespace Bannerlord.ModUpdater
 
             SteamClient.Init(261550, true);
 
-            RebuildForGameVersion(gameVersion);
+            await RebuildForGameVersion(gameVersion);
 
             var metaDataList = await PushReleaseBranches();
             if (metaDataList.Count == 0)
@@ -136,7 +139,7 @@ namespace Bannerlord.ModUpdater
             }
         }
 
-        private void RebuildForGameVersion(string gameVersion)
+        private async Task RebuildForGameVersion(string gameVersion)
         {
             foreach (var repo in _repos)
             {
@@ -157,6 +160,8 @@ namespace Bannerlord.ModUpdater
                 git.CheckoutBranch("master");
                 git.Pull();
 
+                await UpdateSdkAsync(projectDirectory, git);
+
                 var versionFile = Path.Combine(repoDirectory, VersionFileName);
                 var versions = File.ReadAllLines(versionFile).ToList();
 
@@ -166,24 +171,17 @@ namespace Bannerlord.ModUpdater
                     Console.WriteLine($"{repo.Owner}/{repo.Name} already contains version {gameVersion}.");
                 }
 
-                git.StageAll();
-
                 dotnet.BuildProject(gameVersion);
 
                 if (versionUpdated)
                 {
+                    git.StageAll();
                     git.Commit($"Add v{gameVersion} to supported game versions.");
                 }
 
                 var outdatedPackages = dotnet.GetOutdatedPackages();
                 foreach (var package in outdatedPackages)
                 {
-                    if (package.Id.StartsWith("Bannerlord.ReferenceAssemblies")
-                        || package.Id.StartsWith("Humanizer"))
-                    {
-                        continue;
-                    }
-
                     dotnet.UpdatePackage(package.Id);
                     dotnet.BuildProject(gameVersion);
 
@@ -192,6 +190,45 @@ namespace Bannerlord.ModUpdater
                 }
 
                 git.Push();
+            }
+        }
+
+        private async Task UpdateSdkAsync(string projectDirectory, GitRepositoryFacade git)
+        {
+            const string sdk = "Bannerlord.BuildResourcesLite.Sdk";
+
+            var csproj = Directory
+                .EnumerateFiles(projectDirectory, "*.csproj", SearchOption.AllDirectories)
+                .Single();
+
+            var repo = Repository.Factory.GetCoreV3("https://api.nuget.org/v3/index.json");
+            var resource = await repo.GetResourceAsync<FindPackageByIdResource>();
+
+            using var cacheContext = new SourceCacheContext();
+
+            var versions = await resource.GetAllVersionsAsync(
+                sdk,
+                cacheContext,
+                NullLogger.Instance,
+                CancellationToken.None);
+
+            var latest = versions
+                .Where(v => !v.IsPrerelease)
+                .Max();
+
+            var content = await File.ReadAllTextAsync(csproj);
+
+            var updated = Regex.Replace(
+                content,
+                $@"({Regex.Escape(sdk)}/)[\d.]+",
+                $"{sdk}/{latest}");
+
+            if (!string.Equals(content, updated))
+            {
+                await File.WriteAllTextAsync(csproj, updated);
+
+                git.StageAll();
+                git.Commit($"Update {sdk} to {latest}.");
             }
         }
 
@@ -281,7 +318,7 @@ namespace Bannerlord.ModUpdater
             return result.Success;
         }
 
-        private async Task<string> ExtractReleaseAssets(Repo repo, Release release)
+        private async Task<string> ExtractReleaseAssets(Repo repo, Octokit.Release release)
         {
             var asset = release.Assets[0].Url;
 
@@ -303,7 +340,7 @@ namespace Bannerlord.ModUpdater
                     .GetLatest(repo.Owner, repo.Name);
                 version = latestRelease.TagName.Substring(1);
             }
-            catch (NotFoundException)
+            catch (Octokit.NotFoundException)
             {
                 version = "1.0.0.-1";
             }
