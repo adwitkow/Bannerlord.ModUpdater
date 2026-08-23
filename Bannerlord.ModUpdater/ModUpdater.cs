@@ -81,8 +81,11 @@ namespace Bannerlord.ModUpdater
 
             await RebuildForGameVersion(gameVersion);
 
-            var metaDataList = await PushReleaseBranches();
-            if (metaDataList.Count == 0)
+            var metadata = await CollectReleaseMetadata();
+
+            Console.WriteLine("----------");
+
+            if (metadata.Count == 0)
             {
                 Console.WriteLine("No commits to publish.");
 
@@ -90,22 +93,84 @@ namespace Bannerlord.ModUpdater
 
                 return;
             }
+            else
+            {
+                foreach (var release in metadata)
+                {
+                    Console.WriteLine(release.Repo.Name);
+                    Console.WriteLine($"{release.OldVersion} -> {release.NewVersion}");
+                    Console.WriteLine(string.Join(Environment.NewLine, release.Commits));
+                    Console.WriteLine();
+                }
+            }
+
+            Console.WriteLine($"Approved? y/n");
+
+            var response = Console.ReadKey();
+            Console.WriteLine();
+            if (response.Key != ConsoleKey.Y)
+            {
+                return;
+            }
+
+            PushReleaseBranches(metadata);
 
             Console.WriteLine("Going to sleep for a few minutes while releases get published.");
             Console.WriteLine("Repos to publish:");
-            foreach (var metadata in metaDataList)
+            foreach (var release in metadata)
             {
-                Console.WriteLine(metadata.Repo.Name);
+                Console.WriteLine(release.Repo.Name);
             }
 
             await Task.Delay(TimeSpan.FromMinutes(3));
             
-            await ReleaseToWorkshop(metaDataList);
+            await ReleaseToWorkshop(metadata);
 
             SteamClient.Shutdown();
         }
 
-        private async Task ReleaseToWorkshop(List<RepoMetaData> metaDataList)
+        private async Task<List<ReleaseMetadata>> CollectReleaseMetadata()
+        {
+            var metadata = new List<ReleaseMetadata>();
+            foreach (var repo in _repos)
+            {
+                var repoDirectory = GetWorkingRepoDirectory(repo.Owner, repo.Name);
+                var versionFile = Path.Combine(repoDirectory, VersionFileName);
+                var versions = File.ReadAllLines(versionFile).ToList();
+
+                var git = new GitRepositoryFacade(repo.Owner, repo.Name, WorkingDirectory);
+
+                var oldVersion = await GetLatestReleaseVersion(repo);
+                var newVersion = await CalculateReleaseVersion(repo, oldVersion);
+
+                var commits = git.GetCommitsSinceLastRelease();
+
+                if (commits.Length == 0)
+                {
+                    if (!string.IsNullOrEmpty(repo.ForcedVersion))
+                    {
+                        commits = ["Update version"];
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                }
+
+                metadata.Add(new ReleaseMetadata()
+                {
+                    Repo = repo,
+                    OldVersion = oldVersion,
+                    NewVersion = newVersion,
+                    SupportedGameVersions = versions,
+                    Commits = commits,
+                });
+            }
+
+            return metadata;
+        }
+
+        private async Task ReleaseToWorkshop(List<ReleaseMetadata> metaDataList)
         {
             while (metaDataList.Count != 0)
             {
@@ -114,7 +179,7 @@ namespace Bannerlord.ModUpdater
                     var metaData = metaDataList[i];
 
                     var repo = metaData.Repo;
-                    var tagName = metaData.NewVersion;
+                    var tagName = metaData.GetPrefixedNewVersion();
                     var versions = metaData.SupportedGameVersions;
 
                     Console.WriteLine($"Checking if '{repo.Owner}/{repo.Name}' has released");
@@ -232,57 +297,27 @@ namespace Bannerlord.ModUpdater
             }
         }
 
-        public async Task<List<RepoMetaData>> PushReleaseBranches()
+        public void PushReleaseBranches(List<ReleaseMetadata> metadata)
         {
-            var metaDataList = new List<RepoMetaData>();
-
-            foreach (var repo in _repos)
+            foreach (var release in metadata)
             {
-                var repoDirectory = GetWorkingRepoDirectory(repo.Owner, repo.Name);
-                var versionFile = Path.Combine(repoDirectory, VersionFileName);
-                var versions = File.ReadAllLines(versionFile).ToList();
-
+                var repo = release.Repo;
                 var git = new GitRepositoryFacade(repo.Owner, repo.Name, WorkingDirectory);
 
-                var newVersion = await CalculateReleaseVersion(repo);
-
-                var commits = git.GetCommitsSinceLastRelease();
-
-                if (commits.Length == 0)
-                {
-                    if (!string.IsNullOrEmpty(repo.ForcedVersion))
-                    {
-                        commits = ["Update version"];
-                    }
-                    else
-                    {
-                        continue;
-                    }
-                }
-
-                metaDataList.Add(new RepoMetaData()
-                {
-                    Repo = repo,
-                    NewVersion = $"v{newVersion}",
-                    SupportedGameVersions = versions,
-                });
-
-                var newBranch = $"release/{newVersion}";
+                var newBranch = $"release/{release.NewVersion}";
                 try
                 {
-                    git.CheckoutNewBranch($"release/{newVersion}");
+                    git.CheckoutNewBranch(newBranch);
                 }
                 catch { } // will throw an exception if branch already exists locally
                 git.PushBranch(newBranch);
             }
-
-            return metaDataList;
         }
 
-        private static async Task<bool> PublishToWorkshop(RepoMetaData metaData)
+        private static async Task<bool> PublishToWorkshop(ReleaseMetadata metaData)
         {
             var repo = metaData.Repo;
-            var releaseVersion = metaData.NewVersion;
+            var releaseVersion = metaData.GetPrefixedNewVersion();
             var supportedVersions = metaData.SupportedGameVersions;
 
             string[] changeLogLines = [$"Version {releaseVersion}", $"Changelog: {metaData.ReleaseUrl}"];
@@ -348,16 +383,14 @@ namespace Bannerlord.ModUpdater
             return version;
         }
 
-        private async Task<string> CalculateReleaseVersion(Repo repo)
+        private async Task<string> CalculateReleaseVersion(Repo repo, string oldVersion)
         {
             if (!string.IsNullOrWhiteSpace(repo.ForcedVersion))
             {
                 return repo.ForcedVersion;
             }
 
-            var latestVersion = await GetLatestReleaseVersion(repo);
-
-            var subversions = latestVersion.Split('.')
+            var subversions = oldVersion.Split('.')
                 .Select(s => Convert.ToInt32(s))
                 .ToArray();
 
@@ -367,7 +400,21 @@ namespace Bannerlord.ModUpdater
                 Array.Resize(ref subversions, 4);
             }
 
-            subversions[3]++;
+            var indexToIncrease = repo.Release switch
+            {
+                ReleaseType.Major => 0,
+                ReleaseType.Minor => 1,
+                ReleaseType.Patch => 2,
+                ReleaseType.Rebuild => 3,
+                _ => throw new NotImplementedException(),
+            };
+
+            subversions[indexToIncrease]++;
+
+            for (int i = 3; i > indexToIncrease; i--)
+            {
+                subversions[i] = 0;
+            }
 
             return string.Join('.', subversions);
         }
