@@ -77,8 +77,6 @@ namespace Bannerlord.ModUpdater
                 Directory.CreateDirectory(path);
             }
 
-            SteamClient.Init(261550, true);
-
             await RebuildForGameVersion(gameVersion);
 
             var metadata = await CollectReleaseMetadata();
@@ -88,8 +86,6 @@ namespace Bannerlord.ModUpdater
             if (metadata.Count == 0)
             {
                 Console.WriteLine("No commits to publish.");
-
-                SteamClient.Shutdown();
 
                 return;
             }
@@ -123,7 +119,9 @@ namespace Bannerlord.ModUpdater
             }
 
             await Task.Delay(TimeSpan.FromMinutes(3));
-            
+
+            SteamClient.Init(261550, true);
+
             await ReleaseToWorkshop(metadata);
 
             SteamClient.Shutdown();
@@ -427,15 +425,15 @@ namespace Bannerlord.ModUpdater
             if (toUpdate)
             {
                 versions.Add(formattedVersion);
-                var orderedVersions = versions
-                    .OrderByDescending(GetMajor)
-                    .ThenByDescending(GetMinor)
-                    .ThenByDescending(GetPatch)
-                    .ToList();
+            var orderedVersions = versions
+                .OrderByDescending(GetMajor)
+                .ThenByDescending(GetMinor)
+                .ThenByDescending(GetPatch)
+                .ToList();
 
-                RemoveOldInterimVersions(orderedVersions);
+            RemoveOldInterimVersions(orderedVersions);
 
-                File.WriteAllLines(versionFile, orderedVersions);
+            File.WriteAllLines(versionFile, orderedVersions);
             }
 
             return toUpdate;
@@ -448,8 +446,9 @@ namespace Bannerlord.ModUpdater
                 return;
             }
 
-            // List sorted in descending order
             int highestMinor = GetMinor(versions[0]);
+            int targetMinor = highestMinor - 2;
+
             int previousMinor = -1;
             for (int i = versions.Count - 1; i > 0; i--)
             {
@@ -458,9 +457,9 @@ namespace Bannerlord.ModUpdater
 
                 var isFirstVersion = previousMinor != currentMinor;
                 var isLastVersion = nextMinor != currentMinor;
-                var isHighestVersion = highestMinor == currentMinor;
+                var isTargetMinor = currentMinor == targetMinor;
 
-                if (!isFirstVersion && !isLastVersion && !isHighestVersion)
+                if (isTargetMinor && !isFirstVersion && !isLastVersion)
                 {
                     versions.RemoveAt(i);
                 }
