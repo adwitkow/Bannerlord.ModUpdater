@@ -245,6 +245,15 @@ namespace Bannerlord.ModUpdater
                 var outdatedPackages = dotnet.GetOutdatedPackages();
                 foreach (var package in outdatedPackages)
                 {
+                    Console.WriteLine($"Update {package.Id} from {package.ResolvedVersion} to {package.LatestVersion}? y/n");
+
+                    var response = Console.ReadKey();
+                    Console.WriteLine();
+                    if (response.Key != ConsoleKey.Y)
+                    {
+                        continue;
+                    }
+
                     dotnet.UpdatePackage(package.Id);
                     dotnet.BuildProject(gameVersion);
 
