@@ -109,6 +109,10 @@ namespace Bannerlord.ModUpdater
                 return;
             }
 
+            // Initialize before release branches get pushed
+            // because this step can fail somewhat randomly
+            SteamClient.Init(261550, true);
+
             PushReleaseBranches(metadata);
 
             Console.WriteLine("Going to sleep for a few minutes while releases get published.");
@@ -119,8 +123,6 @@ namespace Bannerlord.ModUpdater
             }
 
             await Task.Delay(TimeSpan.FromMinutes(3));
-
-            SteamClient.Init(261550, true);
 
             await ReleaseToWorkshop(metadata);
 
@@ -245,6 +247,18 @@ namespace Bannerlord.ModUpdater
                 var outdatedPackages = dotnet.GetOutdatedPackages();
                 foreach (var package in outdatedPackages)
                 {
+                    var ignored = new[]
+                    {
+                        "Bannerlord.UIExtenderEx", "Lib.Harmony", "Bannerlord.MCM"
+                    };
+
+                    if (ignored.Contains(package.Id))
+                    {
+                        Console.WriteLine($"IGNORING {package.Id} update from {package.ResolvedVersion} to {package.LatestVersion}");
+
+                        continue;
+                    }
+
                     Console.WriteLine($"Update {package.Id} from {package.ResolvedVersion} to {package.LatestVersion}? y/n");
 
                     var response = Console.ReadKey();
